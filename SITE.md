@@ -57,7 +57,7 @@ Admins can also visit every `/office/*` and `/tech/*` page (the nav for Admins i
 - **Database:** PostgreSQL via Prisma ORM 7. Schema: `User`, `Customer` (has `soldById`), `Property`, `Job`, `JobAssignment` (crew), `JobPhoto`, `Quote`/`QuoteLineItem`, `Invoice`/`InvoiceLineItem`, `CommissionTier`, `AuditLog`
 - **Auth:** JWT session in an HTTP-only cookie (`jose`), passwords hashed with `bcryptjs`, 12-hour sessions
 - **Validation:** every API route validates its input with `zod`
-- **Security:** login rate-limited (5 attempts / 5 min per IP), upload rate-limited (30 / 10 min per user), security headers set in `next.config.ts`, audit log of login attempts, generic "email or password isn't right" errors (doesn't reveal which one was wrong)
+- **Security:** login rate-limited (5 attempts / 5 min per IP), upload rate-limited (30 / 10 min per user), security headers set in `next.config.ts`, audit log of login attempts, generic "email or password isn't right" errors (doesn't reveal which one was wrong), deactivating a staff account (or changing their role) revokes their access immediately — every request re-checks `active`/`role` against the database rather than trusting the session token alone (see `lib/session.ts`)
 - **Testing:** `vitest` unit tests for auth, validation, rate limiting, and money math (`npm test`)
 - **Logging/monitoring:** structured JSON logs (`lib/logger.ts`), `GET /api/health` for uptime monitoring
 

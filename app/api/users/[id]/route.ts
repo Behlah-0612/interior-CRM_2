@@ -13,6 +13,7 @@ const SELECT_FIELDS = {
   phone: true,
   role: true,
   active: true,
+  commissionRateBps: true,
   createdAt: true,
 } as const;
 
@@ -49,6 +50,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (body.phone !== undefined) data.phone = body.phone || null;
     if (body.role !== undefined) data.role = body.role;
     if (body.active !== undefined) data.active = body.active;
+    if (body.commissionRateBps !== undefined) data.commissionRateBps = body.commissionRateBps;
     if (body.password) data.passwordHash = await hashPassword(body.password);
 
     const user = await prisma.user.update({ where: { id }, data, select: SELECT_FIELDS });
