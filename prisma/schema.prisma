@@ -1,0 +1,307 @@
+// Interior Home Services BC — CRM database schema
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../app/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  OFFICE_STAFF
+  TECHNICIAN
+  SALESPERSON
+}
+
+enum JobStatus {
+  UNSCHEDULED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  VOID
+}
+
+// ─────────────────────────────────────────────
+// Users & Auth
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         Role
+  active       Boolean  @default(true)
+
+  // Salesperson only: manual commission rate in basis points (1000 = 10.00%).
+  // An active CommissionTier can override this once the salesperson's total
+  // revenue sold crosses that tier's threshold — see CommissionTier below.
+  commissionRateBps Int?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Office staff / admin: jobs they created or manage
+  jobsCreated       Job[]           @relation("JobCreatedBy")
+  // Technician: jobs assigned to them
+  jobAssignments    JobAssignment[]
+  quotesCreated     Quote[]         @relation("QuoteCreatedBy")
+  invoicesCreated   Invoice[]       @relation("InvoiceCreatedBy")
+  jobPhotosUploaded JobPhoto[]      @relation("PhotoUploadedBy")
+  // Salesperson: accounts (customers) they sold
+  customersSold     Customer[]      @relation("CustomerSoldBy")
+  auditLogs         AuditLog[]
+
+  @@index([role])
+}
+
+// ─────────────────────────────────────────────
+// Customers & Properties
+// ─────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Which salesperson sold this account. All jobs under this customer's
+  // properties roll up to them for revenue/commission purposes.
+  soldById String?
+  soldBy   User?   @relation("CustomerSoldBy", fields: [soldById], references: [id], onDelete: SetNull)
+
+  properties Property[]
+  quotes     Quote[]
+  invoices   Invoice[]
+
+  @@index([name])
+  @@index([soldById])
+}
+
+model Property {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  label       String // e.g. "Main House", "Rental Unit 2"
+  addressLine String
+  city        String
+  province    String  @default("BC")
+  postalCode  String?
+  accessNotes String? // gate codes, pets, parking instructions
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs Job[]
+
+  @@index([customerId])
+}
+
+// ─────────────────────────────────────────────
+// Jobs & Scheduling
+// ─────────────────────────────────────────────
+
+model Job {
+  id         String   @id @default(cuid())
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  status      JobStatus @default(UNSCHEDULED)
+  scheduledAt DateTime?
+  completedAt DateTime?
+  priceCents  Int? // agreed job price, in cents
+
+  createdById String
+  createdBy   User   @relation("JobCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments JobAssignment[]
+  photos      JobPhoto[]
+  invoice     Invoice?
+
+  @@index([propertyId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+// Join table: which technician(s) are assigned to a job (crew assignment)
+model JobAssignment {
+  id            String   @id @default(cuid())
+  jobId         String
+  job           Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technicianId  String
+  technician    User     @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+  assignedAt    DateTime @default(now())
+
+  @@unique([jobId, technicianId])
+  @@index([technicianId])
+}
+
+model JobPhoto {
+  id       String @id @default(cuid())
+  jobId    String
+  job      Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  url      String
+  caption  String?
+
+  uploadedById String
+  uploadedBy   User   @relation("PhotoUploadedBy", fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([jobId])
+}
+
+// ─────────────────────────────────────────────
+// Quotes
+// ─────────────────────────────────────────────
+
+model Quote {
+  id         String      @id @default(cuid())
+  customerId String
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  status     QuoteStatus @default(DRAFT)
+  notes      String?
+  validUntil DateTime?
+
+  createdById String
+  createdBy   User   @relation("QuoteCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems QuoteLineItem[]
+  invoice   Invoice?
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model QuoteLineItem {
+  id           String @id @default(cuid())
+  quoteId      String
+  quote        Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  description  String
+  quantity     Int    @default(1)
+  unitPriceCents Int
+
+  @@index([quoteId])
+}
+
+// ─────────────────────────────────────────────
+// Invoices
+// ─────────────────────────────────────────────
+
+model Invoice {
+  id         String        @id @default(cuid())
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  quoteId String? @unique
+  quote   Quote?  @relation(fields: [quoteId], references: [id])
+
+  jobId String? @unique
+  job   Job?    @relation(fields: [jobId], references: [id])
+
+  status    InvoiceStatus @default(DRAFT)
+  dueDate   DateTime?
+  paidAt    DateTime?
+  notes     String?
+
+  createdById String
+  createdBy   User   @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems InvoiceLineItem[]
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model InvoiceLineItem {
+  id             String  @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description    String
+  quantity       Int     @default(1)
+  unitPriceCents Int
+
+  @@index([invoiceId])
+}
+
+// ─────────────────────────────────────────────
+// Sales Commissions
+// ─────────────────────────────────────────────
+
+// Admin-managed automatic commission tiers. Once a salesperson's total
+// revenue sold (all-time) reaches a tier's threshold, that tier's rate
+// replaces their manual commissionRateBps — the highest threshold they
+// qualify for wins. See lib/commission.ts for the actual calculation.
+model CommissionTier {
+  id              String   @id @default(cuid())
+  name            String // e.g. "Bronze", "Gold" — for the admin's own reference
+  minRevenueCents Int // revenue threshold (cumulative, all-time) that unlocks this rate
+  rateBps         Int // commission rate in basis points (1000 = 10.00%)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([minRevenueCents])
+}
+
+// ─────────────────────────────────────────────
+// Audit Log (security / accountability)
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // e.g. "LOGIN_SUCCESS", "LOGIN_FAILED", "JOB_CREATED"
+  entity    String? // e.g. "Job"
+  entityId  String?
+  ip        String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
