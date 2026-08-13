@@ -107,7 +107,3 @@ prisma/                        # schema.prisma, migrations, seed script
 
 - **CLAUDE.md** — instructions for Claude Code when working on this project
 - **SITE.md** — plain-language project documentation, updated after every change
-
----
-
-Built with [Claude Code](https://claude.com/claude-code) inside Ship Studio.
